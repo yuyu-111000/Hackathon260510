@@ -1,6 +1,5 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 import os
 
 from backend.routers import textbooks, graph, integration, rag, chat, report
@@ -29,6 +28,9 @@ app.include_router(integration.router, prefix="/api/integration", tags=["跨教�
 app.include_router(rag.router, prefix="/api/rag", tags=["RAG问答"])
 app.include_router(chat.router, prefix="/api/chat", tags=["教师反馈"])
 app.include_router(report.router, prefix="/api/report", tags=["整合报告"])
+
+# Frontend static files served separately or via reverse proxy
+# In production, Nginx serves frontend and proxies /api/ to backend
 
 
 @app.get("/health", response_model=HealthResponse)

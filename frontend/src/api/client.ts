@@ -5,7 +5,7 @@ import type {
 } from '../types';
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000',
+  baseURL: import.meta.env.VITE_API_URL || '',
   timeout: 300000,
 });
 
@@ -67,7 +67,7 @@ export function buildGraphStream(
   textbookId: string,
   onEvent: (event: BuildProgressEvent) => void,
 ): Promise<GraphData> {
-  const base = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+  const base = import.meta.env.VITE_API_URL || '';
   const params = new URLSearchParams({ textbook_id: textbookId });
   const url = `${base}/api/graph/build-stream?${params}`;
 
