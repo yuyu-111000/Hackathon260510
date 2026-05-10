@@ -129,11 +129,18 @@ class RAGQueryRequest(BaseModel):
     question: str
 
 
+class CitationVerification(BaseModel):
+    citation: str = ""
+    verified: bool = False
+    evidence: str = ""
+
+
 class RAGQueryResponse(BaseModel):
     answer: str
     citations: list[Citation] = Field(default_factory=list)
     source_chunks: list[str] = Field(default_factory=list)
     benchmark: dict = Field(default_factory=dict)
+    citation_verification: list[CitationVerification] = Field(default_factory=list)
 
 
 class RAGStatusResponse(BaseModel):

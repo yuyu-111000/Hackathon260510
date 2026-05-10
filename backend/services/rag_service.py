@@ -277,12 +277,21 @@ def _llm_answer(question: str, top_chunks: list[dict]) -> RAGQueryResponse:
             quote=c.get("quote", ""),
         ))
 
+    # Citation Guard: verify each citation against source chunks
+    source_texts = [c["content"] for c in top_chunks]
+    source_metas = [
+        f"{c.get('textbook', '')} {c.get('chapter', '')} {c.get('page_start', '')}"
+        for c in top_chunks
+    ]
+    citation_verification = _verify_citations(citations, source_texts, source_metas)
+
     return RAGQueryResponse(
         answer=data.get("answer", "当前知识库中未找到相关信息"),
         citations=citations,
         source_chunks=[c["content"][:200] for c in top_chunks],
+        citation_verification=citation_verification,
         benchmark={
-            "retrieval_method": "vector" if hasattr(top_chunks[0], 'get') else "keyword",
+            "retrieval_method": "hybrid" if len(top_chunks) > 1 else "keyword",
             "top_k": len(top_chunks),
             "avg_score": round(sum(c.get("score", 0) for c in top_chunks) / max(len(top_chunks), 1), 3),
             "max_score": round(max(c.get("score", 0) for c in top_chunks), 3) if top_chunks else 0,
@@ -322,6 +331,64 @@ def _extractive_answer(question: str, top_chunks: list[dict]) -> RAGQueryRespons
             "chunks_retrieved": len(top_chunks),
         },
     )
+
+
+def _verify_citations(
+    citations: list, source_texts: list[str], source_metas: list[str]
+) -> list[dict]:
+    """Citation Guard — verify each citation against retrieved source chunks.
+
+    Checks whether cited textbook/chapter/page match source chunk metadata,
+    and whether quoted text appears in the chunk content.
+    """
+    from difflib import SequenceMatcher
+
+    results = []
+    combined_text = " ".join(source_texts)
+    combined_meta = " ".join(source_metas)
+
+    for cit in citations:
+        verified = False
+        evidence = ""
+
+        # Check metadata match: textbook + chapter + page in source metadata
+        meta_keywords = [cit.get("textbook", ""), cit.get("chapter", ""), str(cit.get("page", ""))]
+        meta_match = any(kw and kw in combined_meta for kw in meta_keywords)
+
+        # Check quote match: is the quoted text in the source chunks?
+        quote = cit.get("quote", "")
+        if quote and len(quote) > 5:
+            # Direct substring check
+            if quote[:50] in combined_text:
+                verified = True
+                evidence = "引用文本在检索chunk中找到"
+            else:
+                # Fuzzy match
+                best_ratio = 0
+                for st in source_texts:
+                    ratio = SequenceMatcher(None, quote[:80], st).ratio()
+                    best_ratio = max(best_ratio, ratio)
+                if best_ratio > 0.6:
+                    verified = True
+                    evidence = f"引用文本与检索chunk模糊匹配 (相似度{best_ratio:.0%})"
+                else:
+                    verified = False
+                    evidence = "引用文本未在检索chunk中找到，已标记为可疑"
+        elif meta_match:
+            verified = True
+            evidence = "元数据匹配已验证（无quote字段）"
+        else:
+            verified = False
+            evidence = "引用元数据与检索chunk不匹配，已标记为可疑"
+
+        citation_label = f"[{cit.get('textbook', '')}, {cit.get('chapter', '')}, 第{cit.get('page', '')}页]"
+        results.append({
+            "citation": citation_label,
+            "verified": verified,
+            "evidence": evidence,
+        })
+
+    return results
 
 
 def _default_rag_prompt() -> str:

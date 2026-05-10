@@ -401,3 +401,106 @@ def _auto_trim(nodes: list[KnowledgeNode], target_chars: int) -> tuple[list[Know
             current -= saved
 
     return trimmed, current
+
+
+def compute_integrity_score(
+    nodes: list[KnowledgeNode],
+    edges: list[KnowledgeEdge],
+    decisions: list[MergeDecision],
+) -> dict:
+    """Teaching Integrity Guard — evaluate risk of removed nodes on learning continuity.
+
+    Checks whether removed nodes break prerequisite chains, remove high-frequency
+    or high-degree concepts, or conflict with teacher's manual keep decisions.
+
+    Returns:
+        dict with integrity_score (0-100), risk_nodes list, and summary string.
+    """
+    from backend.schemas import DecisionAction
+
+    node_map = {n.id: n for n in nodes}
+
+    # Compute degree per node
+    degree: dict[str, int] = {}
+    for e in edges:
+        degree[e.source] = degree.get(e.source, 0) + 1
+        degree[e.target] = degree.get(e.target, 0) + 1
+
+    # Nodes that are prerequisite sources — critical for learning path
+    prereq_sources = {e.source for e in edges if e.relation_type.value == 'prerequisite'}
+
+    # Teacher-kept nodes (manually kept or split)
+    teacher_kept = set()
+    for d in decisions:
+        if d.status == 'split_by_teacher':
+            for nid in d.affected_nodes:
+                teacher_kept.add(nid)
+
+    score = 100
+    risk_nodes = []
+
+    for d in decisions:
+        if d.action != DecisionAction.REMOVE:
+            continue
+        for nid in d.affected_nodes:
+            node = node_map.get(nid)
+            if not node:
+                continue
+
+            freq = node.frequency
+            deg = degree.get(nid, 0)
+            is_prereq_source = nid in prereq_sources
+            is_teacher_kept = nid in teacher_kept
+
+            risk_entry = None
+
+            if is_teacher_kept:
+                score -= 20
+                risk_entry = {
+                    "name": node.name,
+                    "risk": "教师手动保留的节点被删除",
+                    "suggestion": "立即恢复 — 教师已明确要求该知识点保留",
+                    "severity": "critical",
+                }
+            elif is_prereq_source and deg >= 3:
+                score -= 10
+                risk_entry = {
+                    "name": node.name,
+                    "risk": "被删除节点是前置依赖源且连接度高",
+                    "suggestion": "建议教师复核或保留 — 该知识点支撑多个下游概念",
+                    "severity": "high",
+                }
+            elif deg >= 3:
+                score -= 8
+                risk_entry = {
+                    "name": node.name,
+                    "risk": "被删除节点具有较高连接度",
+                    "suggestion": "建议教师复核或保留",
+                    "severity": "medium",
+                }
+            elif freq >= 2:
+                score -= 5
+                risk_entry = {
+                    "name": node.name,
+                    "risk": "被删除节点在教材中多次出现",
+                    "suggestion": "可保留为独立知识点或归入相关概念",
+                    "severity": "low",
+                }
+
+            if risk_entry:
+                risk_nodes.append(risk_entry)
+
+    score = max(0, score)
+
+    if score >= 90:
+        summary = "系统保留了主要前置依赖链，教学完整性风险较低。"
+    elif score >= 70:
+        summary = f"有 {len(risk_nodes)} 个知识点存在教学连续性风险，建议教师复核。"
+    else:
+        summary = f"检测到 {len(risk_nodes)} 个教学完整性风险点，强烈建议教师全面复核整合决策。"
+
+    return {
+        "integrity_score": score,
+        "risk_nodes": risk_nodes,
+        "summary": summary,
+    }

@@ -71,10 +71,17 @@ export interface Citation {
   quote: string;
 }
 
+export interface CitationVerification {
+  citation: string;
+  verified: boolean;
+  evidence: string;
+}
+
 export interface RAGResponse {
   answer: string;
   citations: Citation[];
   source_chunks: string[];
+  citation_verification?: CitationVerification[];
   benchmark?: {
     retrieval_method?: string;
     top_k?: number;

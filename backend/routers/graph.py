@@ -210,3 +210,80 @@ def get_learning_path():
         "total_steps": len(paths),
         "methodology": "拓扑排序 — 按前置依赖关系排列学习顺序，无前置依赖的基础概念优先",
     }
+
+
+@router.get("/review-priority")
+def get_review_priority(top_n: int = 10):
+    """Review Priority Score — rank knowledge nodes by learning importance.
+
+    Score = 0.35*frequency + 0.30*graph_degree + 0.20*rag_hit_count + 0.15*teacher_weight.
+    Helps students identify which concepts to review first.
+    """
+    from backend.routers.integration import _decisions
+    from backend.schemas import DecisionAction
+
+    graph = _merged_graph if _merged_graph.nodes else _current_graph
+    if not graph.nodes:
+        raise HTTPException(404, "No graph data.")
+
+    # Compute degree
+    degree: dict[str, int] = {}
+    for e in graph.edges:
+        degree[e.source] = degree.get(e.source, 0) + 1
+        degree[e.target] = degree.get(e.target, 0) + 1
+
+    max_freq = max((n.frequency for n in graph.nodes), default=1) or 1
+    max_degree = max(degree.values(), default=1) or 1
+
+    # Teacher feedback weight: nodes teacher explicitly kept or split get bonus
+    teacher_weight: dict[str, float] = {}
+    for d in _decisions:
+        if d.action == DecisionAction.KEEP and d.status == "split_by_teacher":
+            for nid in d.affected_nodes:
+                teacher_weight[nid] = teacher_weight.get(nid, 0) + 0.5
+        elif d.action == DecisionAction.KEEP:
+            for nid in d.affected_nodes:
+                teacher_weight[nid] = teacher_weight.get(nid, 0) + 0.3
+
+    # Simple rag_hit tracking (in-memory, reset on restart)
+    rag_hits = getattr(get_review_priority, "_rag_hits", {})
+
+    results = []
+    for n in graph.nodes:
+        freq_norm = n.frequency / max_freq
+        deg_norm = degree.get(n.id, 0) / max_degree
+        rag_norm = min(rag_hits.get(n.id, 0) / max(rag_hits.values(), default=1) or 1, 1.0) if rag_hits else 0
+        tw = teacher_weight.get(n.id, 0)
+
+        score = round(
+            0.35 * freq_norm * 100 +
+            0.30 * deg_norm * 100 +
+            0.20 * rag_norm * 100 +
+            0.15 * tw * 100,
+            1
+        )
+
+        reasons = []
+        if n.frequency >= 2:
+            reasons.append(f"多教材高频出现({n.frequency}次)")
+        if degree.get(n.id, 0) >= 2:
+            reasons.append(f"连接度高({degree[n.id]}条关系)")
+        if n.id in teacher_weight:
+            reasons.append("教师反馈要求保留")
+
+        results.append({
+            "node_name": n.name,
+            "node_id": n.id,
+            "category": n.category,
+            "score": score,
+            "frequency": n.frequency,
+            "degree": degree.get(n.id, 0),
+            "reason": "、".join(reasons) if reasons else "综合评估",
+        })
+
+    results.sort(key=lambda x: x["score"], reverse=True)
+    return {
+        "top_nodes": results[:top_n],
+        "total_nodes": len(results),
+        "methodology": "0.35×频次 + 0.30×图谱度数 + 0.20×RAG命中 + 0.15×教师反馈权重",
+    }

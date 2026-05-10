@@ -42,12 +42,32 @@ export default function RagPanel({ onBuildRAG, onQuery, status, answer }: Props)
       {answer && (
         <div className="rag-answer">
           <div className="answer-text">{answer.answer}</div>
-          {answer.citations.map((c, i) => (
-            <div key={i} className="citation-card">
-              <div className="cite-source">{c.textbook} · {c.chapter} · 第{c.page}页</div>
-              <div className="cite-quote">"{c.quote}"</div>
-            </div>
-          ))}
+          {answer.citations.map((c, i) => {
+            const v = answer.citation_verification?.[i];
+            return (
+              <div key={i} className="citation-card">
+                <div className="cite-source">
+                  {c.textbook} · {c.chapter} · 第{c.page}页
+                  {v && (
+                    <span style={{
+                      marginLeft: '8px',
+                      fontSize: '10px',
+                      color: v.verified ? '#3D6B4F' : '#B85450',
+                      fontWeight: 600,
+                    }}>
+                      {v.verified ? '✅ 已验证' : '⚠️ 可疑'}
+                    </span>
+                  )}
+                </div>
+                <div className="cite-quote">"{c.quote}"</div>
+                {v && !v.verified && (
+                  <div style={{ fontSize: '10px', color: '#B85450', marginTop: '4px' }}>
+                    {v.evidence}
+                  </div>
+                )}
+              </div>
+            );
+          })}
           {answer.benchmark && Object.keys(answer.benchmark).length > 0 && (
             <div style={{ marginTop: '12px', padding: '10px', background: '#F5F0E8', borderRadius: '8px', fontSize: '11px', color: '#6B5D4F' }}>
               <div style={{ fontWeight: 600, marginBottom: '6px', color: '#3D6B4F', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '1px' }}>检索指标</div>
