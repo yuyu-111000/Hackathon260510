@@ -48,6 +48,77 @@ export async function buildGraph(textbookId?: string): Promise<GraphData> {
   return data;
 }
 
+export interface BuildProgressEvent {
+  type: 'start' | 'progress' | 'complete' | 'done';
+  total_chapters?: number;
+  chapter?: number;
+  total?: number;
+  title?: string;
+  nodes_found?: number;
+  total_nodes?: number;
+  total_edges?: number;
+  error?: string;
+  nodes?: any[];
+  edges?: any[];
+  book_title?: string;
+}
+
+export function buildGraphStream(
+  textbookId: string,
+  onEvent: (event: BuildProgressEvent) => void,
+): Promise<GraphData> {
+  const base = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+  const params = new URLSearchParams({ textbook_id: textbookId });
+  const url = `${base}/api/graph/build-stream?${params}`;
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url);
+    xhr.setRequestHeader('Accept', 'text/event-stream');
+
+    let buffer = '';
+    let finalNodes: any[] = [];
+    let finalEdges: any[] = [];
+
+    xhr.onprogress = () => {
+      buffer += xhr.responseText;
+      const lines = buffer.split('\n\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const event = JSON.parse(line.slice(6));
+          onEvent(event);
+
+          if (event.type === 'complete') {
+            finalNodes = event.nodes || [];
+            finalEdges = event.edges || [];
+          }
+        } catch { /* skip malformed */ }
+      }
+    };
+
+    xhr.onload = () => {
+      // Process remaining buffer
+      if (buffer.startsWith('data: ')) {
+        try {
+          const event = JSON.parse(buffer.slice(6));
+          onEvent(event);
+          if (event.type === 'complete') {
+            finalNodes = event.nodes || [];
+            finalEdges = event.edges || [];
+          }
+        } catch { /* skip */ }
+      }
+      resolve({ nodes: finalNodes, edges: finalEdges });
+    };
+
+    xhr.onerror = () => reject(new Error('连接失败'));
+    xhr.send();
+  });
+}
+
 export async function getGraph(): Promise<GraphData> {
   const { data } = await api.get('/api/graph');
   return data;

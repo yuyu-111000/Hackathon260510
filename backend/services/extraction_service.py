@@ -2,16 +2,14 @@ import json
 import re
 import os
 import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Generator
 from backend.schemas import KnowledgeNode, KnowledgeEdge, RelationType, NodeStatus
 from backend import config
 
 logger = logging.getLogger(__name__)
 
 # Per-chapter LLM timeout in seconds
-LLM_CHAPTER_TIMEOUT = 20
-# Max concurrent LLM calls
-MAX_WORKERS = 4
+LLM_CHAPTER_TIMEOUT = 15
 
 
 def extract_knowledge(textbook: dict) -> tuple[list[KnowledgeNode], list[KnowledgeEdge]]:
@@ -19,47 +17,85 @@ def extract_knowledge(textbook: dict) -> tuple[list[KnowledgeNode], list[Knowled
     book_title = textbook.get("title", "未知教材")
     chapters = textbook.get("chapters", [])
 
-    # Filter valid chapters
-    valid_chapters = [
-        ch for ch in chapters
-        if len(ch.get("content", "")) >= 50
-    ]
+    all_nodes = []
+    all_edges = []
 
-    if not valid_chapters:
-        return [], []
+    for chapter in chapters:
+        content = chapter.get("content", "")
+        if len(content) < 50:
+            continue
+
+        try:
+            nodes, edges = _extract_from_chapter(
+                book_id=book_id,
+                book_title=book_title,
+                chapter_title=chapter.get("title", ""),
+                page_start=chapter.get("page_start", 1),
+                content=content[:5000],
+            )
+            all_nodes.extend(nodes)
+            all_edges.extend(edges)
+        except Exception as e:
+            logger.warning(f"Extraction failed for {chapter.get('title', '?')}: {e}")
+
+    return all_nodes, all_edges
+
+
+def extract_knowledge_stream(textbook: dict) -> Generator[dict, None, None]:
+    """Yield progress events as JSON dicts for SSE streaming."""
+    book_id = textbook.get("textbook_id", "unknown")
+    book_title = textbook.get("title", "未知教材")
+    chapters = textbook.get("chapters", [])
+
+    valid_chapters = [ch for ch in chapters if len(ch.get("content", "")) >= 50]
+    total = len(valid_chapters)
+
+    yield {"type": "start", "total_chapters": total, "book_title": book_title}
 
     all_nodes = []
     all_edges = []
 
-    def extract_one(chapter):
+    for i, chapter in enumerate(valid_chapters):
         content = chapter.get("content", "")
-        return _extract_from_chapter(
-            book_id=book_id,
-            book_title=book_title,
-            chapter_title=chapter.get("title", ""),
-            page_start=chapter.get("page_start", 1),
-            content=content[:5000],
-        )
+        ch_title = chapter.get("title", f"第{i+1}章")
 
-    # Use parallel extraction when LLM is available
-    if config.LLM_API_KEY and len(valid_chapters) > 1:
-        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-            futures = {executor.submit(extract_one, ch): ch for ch in valid_chapters}
-            for future in as_completed(futures):
-                try:
-                    nodes, edges = future.result(timeout=LLM_CHAPTER_TIMEOUT + 5)
-                    all_nodes.extend(nodes)
-                    all_edges.extend(edges)
-                except Exception as e:
-                    ch = futures[future]
-                    logger.warning(f"Extraction failed for {ch.get('title', '?')}: {e}")
-    else:
-        for chapter in valid_chapters:
-            nodes, edges = extract_one(chapter)
+        try:
+            nodes, edges = _extract_from_chapter(
+                book_id=book_id,
+                book_title=book_title,
+                chapter_title=ch_title,
+                page_start=chapter.get("page_start", 1),
+                content=content[:5000],
+            )
             all_nodes.extend(nodes)
             all_edges.extend(edges)
+            yield {
+                "type": "progress",
+                "chapter": i + 1,
+                "total": total,
+                "title": ch_title,
+                "nodes_found": len(nodes),
+                "total_nodes": len(all_nodes),
+            }
+        except Exception as e:
+            logger.warning(f"Extraction failed for {ch_title}: {e}")
+            yield {
+                "type": "progress",
+                "chapter": i + 1,
+                "total": total,
+                "title": ch_title,
+                "nodes_found": 0,
+                "total_nodes": len(all_nodes),
+                "error": str(e),
+            }
 
-    return all_nodes, all_edges
+    yield {
+        "type": "complete",
+        "total_nodes": len(all_nodes),
+        "total_edges": len(all_edges),
+        "nodes": [n.model_dump() for n in all_nodes],
+        "edges": [e.model_dump() for e in all_edges],
+    }
 
 
 def _extract_from_chapter(

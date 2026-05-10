@@ -6,7 +6,7 @@ import type {
 } from './types';
 import {
   uploadTextbook, listTextbooks, parseTextbook,
-  buildGraph, getGraph, getMergedGraph,
+  buildGraph, buildGraphStream, getGraph, getMergedGraph,
   runIntegration,
   sendChat, getChatHistory,
   generateReport
@@ -72,14 +72,48 @@ function App() {
   };
 
   const handleBuildGraph = async (textbookId?: string) => {
-    setLoading('构建知识图谱...');
-    try {
-      const g = await buildGraph(textbookId);
-      setGraphData(g);
-    } catch (e: any) {
-      alert('构建失败: ' + (e.friendlyMessage || e.message));
-    } finally {
-      setLoading('');
+    if (!textbookId) {
+      setLoading('构建知识图谱...');
+      try {
+        const g = await buildGraph();
+        setGraphData(g);
+      } catch (e: any) {
+        alert('构建失败: ' + (e.friendlyMessage || e.message));
+      } finally {
+        setLoading('');
+      }
+      return;
+    }
+
+    // Find textbook to check chapter count
+    const tb = textbooks.find(t => t.textbook_id === textbookId);
+    const chapterCount = tb?.chapters?.length || 0;
+
+    // Use streaming for large textbooks (>5 chapters)
+    if (chapterCount > 5) {
+      setLoading('构建中: 0/' + chapterCount + ' 章...');
+      try {
+        const g = await buildGraphStream(textbookId, (event) => {
+          if (event.type === 'progress') {
+            setLoading(`构建中: ${event.chapter}/${event.total} ${event.title || ''}`);
+          }
+        });
+        setGraphData(g);
+      } catch (e: any) {
+        alert('构建失败: ' + (e.message || '未知错误'));
+      } finally {
+        setLoading('');
+      }
+    } else {
+      setLoading('构建知识图谱...');
+      try {
+        const g = await buildGraph(textbookId);
+        setGraphData(g);
+      } catch (e: any) {
+        alert('构建失败: ' + (e.friendlyMessage || e.message));
+      } finally {
+        setLoading('');
+      }
     }
   };
 
