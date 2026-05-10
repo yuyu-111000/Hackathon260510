@@ -185,6 +185,24 @@ export async function getChatHistory(): Promise<ChatMessage[]> {
   return data.messages;
 }
 
+// Learning Path
+export interface LearningPathItem {
+  order: number;
+  node_name: string;
+  node_id: string;
+  category: string;
+  prerequisites: string[];
+}
+export interface LearningPathResponse {
+  paths: LearningPathItem[];
+  total_steps: number;
+  methodology: string;
+}
+export async function getLearningPath(): Promise<LearningPathResponse> {
+  const { data } = await api.get('/api/graph/learning-path');
+  return data;
+}
+
 // Report
 export async function getReport(): Promise<string> {
   const { data } = await api.get('/api/report');

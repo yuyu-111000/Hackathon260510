@@ -23,6 +23,21 @@ EduFusion 是一个**学科知识整合智能体**，能够自动解析多本教
 - **前端**: React + TypeScript + Vite + ECharts + Axios
 - **LLM**: OpenAI 兼容接口（DeepSeek/Qwen 等）
 
+## Docker 一键部署（推荐）
+
+```bash
+# 1. 配置环境变量
+cp .env.example .env
+# 编辑 .env 填入 LLM_API_KEY
+
+# 2. 一键启动
+docker compose up -d
+
+# 3. 访问
+# 前端: http://localhost:5173
+# API文档: http://localhost:8000/docs
+```
+
 ## 快速开始
 
 ### 1. 安装依赖

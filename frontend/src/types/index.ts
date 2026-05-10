@@ -31,6 +31,7 @@ export interface KnowledgeNode {
   source_quote: string;
   frequency: number;
   status: 'raw' | 'merged' | 'kept' | 'removed';
+  confidence: number;
 }
 
 export interface KnowledgeEdge {

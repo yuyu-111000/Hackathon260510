@@ -9,6 +9,9 @@ interface Props {
   onToggleMode?: () => void;
   hasMergedGraph?: boolean;
   onGenerateReport?: () => void;
+  rawNodeCount?: number;
+  mergedNodeCount?: number;
+  onNodeSelect?: (node: KnowledgeNode) => void;
 }
 
 const COLORS = [
@@ -41,7 +44,7 @@ function wrapName(name: string, maxChars: number = 10): string {
   return lines.join('\n');
 }
 
-export default function GraphView({ graphData, graphMode = 'raw', onToggleMode, hasMergedGraph = false, onGenerateReport }: Props) {
+export default function GraphView({ graphData, graphMode = 'raw', onToggleMode, hasMergedGraph = false, onGenerateReport, onNodeSelect }: Props) {
   const [search, setSearch] = useState('');
   const [selectedNode, setSelectedNode] = useState<KnowledgeNode | null>(null);
   const [popoverPos, setPopoverPos] = useState<{ x: number; y: number } | null>(null);
@@ -132,11 +135,22 @@ export default function GraphView({ graphData, graphMode = 'raw', onToggleMode, 
       const isRoot = rootIds.includes(n.id);
       const pos = positions.get(n.id);
 
+      const categorySymbol: string = (() => {
+        const cat = (n.category || '').toLowerCase();
+        if (cat.includes('核心概念') || cat.includes('core')) return 'circle';
+        if (cat.includes('概念') || cat.includes('concept')) return 'roundRect';
+        if (cat.includes('应用') || cat.includes('apply') || cat.includes('方法')) return 'triangle';
+        if (cat.includes('原理') || cat.includes('principle')) return 'diamond';
+        if (cat.includes('结构') || cat.includes('structure')) return 'rect';
+        return 'circle';
+      })();
+
       return {
         id: n.id,
         name: wrapName(n.name),
         x: pos ? pos[0] : undefined,
         y: pos ? pos[1] : undefined,
+        symbol: categorySymbol,
         symbolSize: isRoot ? 20 : Math.max(8, Math.min(24, 6 + n.frequency * 2)),
         fixed: isRoot,
         itemStyle: {
@@ -228,8 +242,9 @@ export default function GraphView({ graphData, graphMode = 'raw', onToggleMode, 
     if (params.dataType === 'node' && params.data?._raw) {
       setSelectedNode(params.data._raw);
       setPopoverPos({ x: params.event?.offsetX || 300, y: params.event?.offsetY || 200 });
+      if (onNodeSelect) onNodeSelect(params.data._raw);
     }
-  }, []);
+  }, [onNodeSelect]);
 
   if (!graphData || graphData.nodes.length === 0) {
     return (
@@ -280,7 +295,9 @@ export default function GraphView({ graphData, graphMode = 'raw', onToggleMode, 
               whiteSpace: 'nowrap',
             }}
           >
-            {graphMode === 'merged' ? '整合后' : '整合前'}
+            {graphMode === 'merged'
+              ? `整合后 (${graphData.nodes.length}节点)`
+              : `整合前 (${graphData.nodes.length}节点)`}
           </button>
         )}
       </div>

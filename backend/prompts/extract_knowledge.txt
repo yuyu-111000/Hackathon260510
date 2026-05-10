@@ -35,3 +35,19 @@
     }
   ]
 }
+
+示例：
+输入正文：细胞是生物体结构和功能的基本单位。细胞膜控制物质进出。线粒体是细胞的能量工厂。
+
+输出：
+{
+  "nodes": [
+    {"id": "bio_ch01_n01", "name": "细胞", "definition": "生物体结构和功能的基本单位", "category": "核心概念", "chapter": "第1章 细胞", "page": 1, "source_quote": "细胞是生物体结构和功能的基本单位"},
+    {"id": "bio_ch01_n02", "name": "细胞膜", "definition": "控制物质进出细胞的结构", "category": "结构", "chapter": "第1章 细胞", "page": 1, "source_quote": "细胞膜控制物质进出"},
+    {"id": "bio_ch01_n03", "name": "线粒体", "definition": "细胞的能量工厂", "category": "结构", "chapter": "第1章 细胞", "page": 1, "source_quote": "线粒体是细胞的能量工厂"}
+  ],
+  "edges": [
+    {"source": "bio_ch01_n01", "target": "bio_ch01_n02", "relation_type": "contains", "description": "细胞包含细胞膜"},
+    {"source": "bio_ch01_n01", "target": "bio_ch01_n03", "relation_type": "contains", "description": "细胞包含线粒体"}
+  ]
+}

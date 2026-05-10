@@ -63,6 +63,7 @@ class KnowledgeNode(BaseModel):
     source_quote: str = ""
     frequency: int = 1
     status: NodeStatus = NodeStatus.RAW
+    confidence: float = 1.0
 
 
 class KnowledgeEdge(BaseModel):

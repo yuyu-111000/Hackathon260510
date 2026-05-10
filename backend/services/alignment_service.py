@@ -8,6 +8,19 @@ from backend import config
 
 
 def align_and_merge(graph: GraphResponse, original_total_chars: int = 0) -> tuple[list[MergeDecision], GraphResponse, IntegrationStats]:
+    """Cross-textbook knowledge alignment and deduplication pipeline.
+
+    Pipeline: compute pairwise similarities → Union-Find clustering → generate
+    merge decisions → rebuild edges → auto-trim if compression > 30%.
+
+    Args:
+        graph: Raw knowledge graph with nodes from multiple textbooks.
+        original_total_chars: Total characters in source textbooks for compression calc.
+
+    Returns:
+        Tuple of (MergeDecision list, merged GraphResponse, IntegrationStats).
+        Falls back to difflib if sentence-transformers is unavailable.
+    """
     nodes = graph.nodes
     edges = graph.edges
 

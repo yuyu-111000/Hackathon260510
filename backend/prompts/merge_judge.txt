@@ -15,3 +15,17 @@
   "reason": "判断理由",
   "need_review": false
 }
+
+示例1（应合并）：
+知识点A：细胞凋亡 / 定义A：基因调控的程序性细胞死亡过程 / 教材A：生物必修一
+知识点B：程序性细胞死亡 / 定义B：由基因控制的细胞自主有序的死亡 / 教材B：细胞生物学
+相似度：0.92
+输出：{"equivalent": true, "decision": "merge", "confidence": 0.95, "reason": "细胞凋亡和程序性细胞死亡是同一概念的中英文术语，定义完全等价", "need_review": false}
+
+示例2（不应合并）：
+知识点A：细胞凋亡 / 定义A：基因调控的程序性细胞死亡 / 教材A：生物必修一
+知识点B：细胞坏死 / 定义B：病理条件下被动发生的细胞死亡 / 教材B：病理学基础
+相似度：0.85
+输出：{"equivalent": false, "decision": "keep", "confidence": 0.9, "reason": "凋亡是主动程序性死亡，坏死是被动病理性死亡，机制完全不同，属于并列关系", "need_review": false}
+
+重要提示：如果证据不足、定义模糊、无法确定是否等价，equivalent 设为 false 且 confidence 调低（0.3-0.5），need_review 设为 true。宁可保守保留，不要错误合并。

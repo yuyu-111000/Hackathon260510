@@ -2,19 +2,20 @@ import { useState, useEffect, useCallback } from 'react';
 import './App.css';
 import type {
   Textbook, GraphData, MergeDecision, IntegrationStats,
-  ChatMessage
+  ChatMessage, KnowledgeNode, RAGResponse
 } from './types';
 import {
   uploadTextbook, listTextbooks, parseTextbook,
   buildGraph, buildGraphStream, getGraph, getMergedGraph,
-  runIntegration,
+  runIntegration, getDecisions, updateDecision,
   sendChat, getChatHistory,
-  generateReport
+  generateReport, getReport,
+  buildRAGIndex, queryRAG,
 } from './api/client';
 import UploadPanel from './components/UploadPanel';
 import TextbookList from './components/TextbookList';
 import GraphView from './components/GraphView';
-import ChatPanel from './components/ChatPanel';
+import RightPanel from './components/RightPanel';
 
 function App() {
   const [textbooks, setTextbooks] = useState<Textbook[]>([]);
@@ -27,6 +28,10 @@ function App() {
   const [graphMode, setGraphMode] = useState<'raw' | 'merged'>('raw');
   const [report, setReport] = useState<string>('');
   const [showReport, setShowReport] = useState(false);
+  const [activeTab, setActiveTab] = useState<'node' | 'integration' | 'rag' | 'chat' | 'report'>('chat');
+  const [selectedNode, setSelectedNode] = useState<KnowledgeNode | null>(null);
+  const [ragStatus, setRagStatus] = useState<{ indexed_books: number; chunk_count: number; status: string } | null>(null);
+  const [ragAnswer, setRagAnswer] = useState<RAGResponse | null>(null);
 
   const refreshTextbooks = useCallback(async () => {
     try {
@@ -85,11 +90,9 @@ function App() {
       return;
     }
 
-    // Find textbook to check chapter count
     const tb = textbooks.find(t => t.textbook_id === textbookId);
     const chapterCount = tb?.chapters?.length || 0;
 
-    // Use streaming for large textbooks (>5 chapters)
     if (chapterCount > 5) {
       setLoading('构建中: 0/' + chapterCount + ' 章...');
       try {
@@ -167,6 +170,51 @@ function App() {
     }
   };
 
+  const handleBuildRAG = async () => {
+    setLoading('构建RAG索引...');
+    try {
+      const result = await buildRAGIndex();
+      setRagStatus({ indexed_books: result.books, chunk_count: result.chunks, status: 'ready' });
+    } catch (e: any) {
+      alert('RAG索引构建失败: ' + (e.friendlyMessage || e.message));
+    } finally {
+      setLoading('');
+    }
+  };
+
+  const handleRAGQuery = async (q: string) => {
+    setLoading('检索中...');
+    try {
+      const result = await queryRAG(q);
+      setRagAnswer(result);
+    } catch (e: any) {
+      alert('查询失败: ' + (e.friendlyMessage || e.message));
+    } finally {
+      setLoading('');
+    }
+  };
+
+  const handleLoadReport = async () => {
+    try {
+      const content = await getReport();
+      if (content && content !== '报告尚未生成。请先运行整合分析。') {
+        setReport(content);
+      }
+    } catch { /* ignore */ }
+  };
+
+  const handleUpdateDecision = async (id: string, action: string) => {
+    try {
+      await updateDecision(id, action);
+      const mg = await getMergedGraph();
+      setMergedGraph(mg);
+      const updatedDecisions = await getDecisions();
+      setDecisions(updatedDecisions);
+    } catch (e: any) {
+      alert('更新决策失败: ' + (e.friendlyMessage || e.message));
+    }
+  };
+
   const parsedCount = textbooks.filter(t => t.status === 'parsed').length;
 
   return (
@@ -190,7 +238,6 @@ function App() {
             onBuildGraph={handleBuildGraph}
           />
         </div>
-        {/* Fixed bottom area */}
         <div className="left-panel-bottom">
           {parsedCount >= 2 && (
             <>
@@ -225,23 +272,51 @@ function App() {
           onToggleMode={() => setGraphMode(graphMode === 'raw' ? 'merged' : 'raw')}
           hasMergedGraph={!!mergedGraph}
           onGenerateReport={handleGenerateReport}
+          rawNodeCount={graphData?.nodes.length}
+          mergedNodeCount={mergedGraph?.nodes.length}
+          onNodeSelect={(node) => { setSelectedNode(node); setActiveTab('node'); }}
         />
       </div>
 
-      {/* Right Panel - Chat only */}
+      {/* Right Panel - Multi-tab */}
       <div className="right-panel">
         <div className="right-panel-header">
-          <span>教师对话</span>
-          {decisions.length > 0 && (
+          <span>{
+            activeTab === 'node' ? '节点详情' :
+            activeTab === 'integration' ? '跨教材整合' :
+            activeTab === 'rag' ? 'RAG 问答' :
+            activeTab === 'chat' ? '教师对话' :
+            '整合报告'
+          }</span>
+          {activeTab === 'integration' && decisions.length > 0 && (
             <span style={{ fontSize: '11px', color: 'var(--text-dim)' }}>
               {decisions.length} 项决策
             </span>
           )}
+          {activeTab === 'rag' && ragStatus && (
+            <span style={{ fontSize: '11px', color: 'var(--text-dim)' }}>
+              {ragStatus.chunk_count} 片段
+            </span>
+          )}
         </div>
         <div className="right-panel-body">
-          <ChatPanel
-            history={chatHistory}
-            onSend={handleSendChat}
+          <RightPanel
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
+            selectedNode={selectedNode}
+            decisions={decisions}
+            stats={stats}
+            onRunIntegration={handleIntegration}
+            onUpdateDecision={handleUpdateDecision}
+            onBuildRAG={handleBuildRAG}
+            onRAGQuery={handleRAGQuery}
+            ragStatus={ragStatus}
+            ragAnswer={ragAnswer}
+            chatHistory={chatHistory}
+            onSendChat={handleSendChat}
+            report={report}
+            onGenerateReport={handleGenerateReport}
+            onLoadReport={handleLoadReport}
           />
         </div>
       </div>

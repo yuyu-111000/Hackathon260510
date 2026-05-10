@@ -1,8 +1,9 @@
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
-from backend.schemas import GraphResponse, KnowledgeNode, KnowledgeEdge
+from backend.schemas import GraphResponse, KnowledgeNode, KnowledgeEdge, RelationType
 import os
 import json
+from collections import defaultdict, deque
 from backend import config
 
 router = APIRouter()
@@ -144,3 +145,68 @@ def get_current_graph() -> GraphResponse:
 def set_current_graph(graph: GraphResponse):
     global _current_graph
     _current_graph = graph
+
+
+@router.get("/learning-path")
+def get_learning_path():
+    """Generate learning path via topological sort on prerequisite edges.
+
+    Nodes with no prerequisites come first. Nodes connected by prerequisite
+    edges are ordered so learners master foundations before advanced topics.
+    """
+    graph = _merged_graph if _merged_graph.nodes else _current_graph
+    if not graph.nodes:
+        raise HTTPException(404, "No graph data. Build graph first.")
+
+    node_map = {n.id: n for n in graph.nodes}
+
+    # Build adjacency and in-degree
+    adj: dict[str, list[str]] = defaultdict(list)
+    in_degree: dict[str, int] = {n.id: 0 for n in graph.nodes}
+
+    for e in graph.edges:
+        if e.relation_type == RelationType.PREREQUISITE:
+            if e.source in node_map and e.target in node_map:
+                adj[e.source].append(e.target)
+                in_degree[e.target] = in_degree.get(e.target, 0) + 1
+
+    # Kahn's algorithm for topological sort
+    queue = deque([nid for nid, deg in in_degree.items() if deg == 0])
+    order = []
+
+    while queue:
+        curr = queue.popleft()
+        order.append(curr)
+        for neighbor in adj.get(curr, []):
+            in_degree[neighbor] -= 1
+            if in_degree[neighbor] == 0:
+                queue.append(neighbor)
+
+    # Nodes not reached by prerequisite edges — append at end
+    reached = set(order)
+    for nid in node_map:
+        if nid not in reached:
+            order.append(nid)
+
+    paths = []
+    for i, nid in enumerate(order):
+        node = node_map.get(nid)
+        if not node:
+            continue
+        prereqs = [
+            e.source for e in graph.edges
+            if e.target == nid and e.relation_type == RelationType.PREREQUISITE
+        ]
+        paths.append({
+            "order": i + 1,
+            "node_name": node.name,
+            "node_id": node.id,
+            "category": node.category,
+            "prerequisites": prereqs,
+        })
+
+    return {
+        "paths": paths,
+        "total_steps": len(paths),
+        "methodology": "拓扑排序 — 按前置依赖关系排列学习顺序，无前置依赖的基础概念优先",
+    }

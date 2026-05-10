@@ -13,6 +13,15 @@ LLM_CHAPTER_TIMEOUT = 15
 
 
 def extract_knowledge(textbook: dict) -> tuple[list[KnowledgeNode], list[KnowledgeEdge]]:
+    """Extract knowledge nodes and edges from a parsed textbook.
+
+    Args:
+        textbook: dict with textbook_id, title, and chapters list.
+
+    Returns:
+        Tuple of (KnowledgeNode list, KnowledgeEdge list).
+        Falls back from LLM extraction to rule-based on any failure.
+    """
     book_id = textbook.get("textbook_id", "unknown")
     book_title = textbook.get("title", "未知教材")
     chapters = textbook.get("chapters", [])
@@ -186,6 +195,7 @@ def _llm_extract(
                 source_quote=n.get("source_quote", ""),
                 frequency=1,
                 status=NodeStatus.RAW,
+                confidence=n.get("confidence", 0.7),
             ))
         except Exception:
             continue

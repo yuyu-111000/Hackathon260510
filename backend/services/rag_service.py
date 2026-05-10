@@ -16,6 +16,11 @@ class RAGService:
         self._bm25 = None
 
     def build_index(self, textbooks: list[dict]):
+        """Build RAG index from parsed textbooks with sliding-window chunking.
+
+        Chunk size and overlap from config (default 600/80). Builds vector index
+        via sentence-transformers; falls back to keyword-only retrieval.
+        """
         self.chunks = []
         self.indexed_books = len(textbooks)
 
@@ -91,10 +96,67 @@ class RAGService:
         return _extractive_answer(question, top_chunks)
 
     def _retrieve(self, question: str, top_k: int) -> list[dict]:
-        if self._embeddings is not None:
-            return self._vector_retrieve(question, top_k)
+        vector_results = []
+        keyword_results = {}
 
-        return self._keyword_retrieve(question, top_k)
+        # Try vector retrieval
+        if self._embeddings is not None:
+            try:
+                vector_results = self._vector_retrieve_raw(question, top_k * 2)
+            except Exception:
+                pass
+
+        # Always try keyword retrieval
+        keyword_results_list = self._keyword_retrieve(question, top_k * 2)
+        for c in keyword_results_list:
+            keyword_results[c["chunk_id"]] = c
+
+        # Hybrid merge: 0.7 * vec_score + 0.3 * kw_score
+        merged_scores: dict[str, float] = {}
+        chunk_map: dict[str, dict] = {}
+
+        for c in vector_results:
+            cid = c["chunk_id"]
+            chunk_map[cid] = c
+            merged_scores[cid] = 0.7 * c.get("score", 0)
+
+        for cid, c in keyword_results.items():
+            if cid not in chunk_map:
+                chunk_map[cid] = c
+                merged_scores[cid] = 0.0
+            merged_scores[cid] = merged_scores.get(cid, 0) + 0.3 * c.get("score", 0)
+
+        sorted_ids = sorted(merged_scores, key=lambda k: merged_scores[k], reverse=True)
+
+        results = []
+        for cid in sorted_ids[:top_k]:
+            c = dict(chunk_map[cid])
+            c["score"] = merged_scores[cid]
+            results.append(c)
+
+        if not results:
+            return self.chunks[:top_k]
+
+        return results
+
+    def _vector_retrieve_raw(self, question: str, top_k: int) -> list[dict]:
+        """Vector retrieval without fallback, used by hybrid _retrieve."""
+        import numpy as np
+        from sentence_transformers import SentenceTransformer
+
+        model = SentenceTransformer(config.EMBEDDING_MODEL, device=config.EMBEDDING_DEVICE)
+        q_emb = model.encode([question], normalize_embeddings=True)
+        q_emb = np.array(q_emb, dtype=np.float32)
+
+        scores = np.dot(self._embeddings, q_emb.T).flatten()
+        top_indices = np.argsort(scores)[::-1][:top_k]
+
+        results = []
+        for idx in top_indices:
+            chunk = dict(self.chunks[idx])
+            chunk["score"] = float(scores[idx])
+            results.append(chunk)
+        return results
 
     def _vector_retrieve(self, question: str, top_k: int) -> list[dict]:
         import numpy as np
